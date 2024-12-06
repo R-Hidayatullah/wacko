@@ -7,7 +7,8 @@ int main()
     memset(&dat_file, 0, sizeof(DatFile));
 
     // Load the DAT file
-    const char *file_path = "Local.dat"; // Change to your actual path if needed
+    // const char *file_path = "Local.dat"; // Change to your actual path if needed
+    const char *file_path = "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Guild Wars 2\\Gw2.dat"; // Change to your actual path if needed
     load_dat_file(file_path, &dat_file);
 
     // Print out the parsed data for debugging purposes
@@ -16,10 +17,9 @@ int main()
     printf("Number of MFT Entries: %u\n", dat_file.mft_header.num_entries);
 
     // Example: Extract MFT data based on file ID or base ID
-    uint32_t search_id = 16; // Change this to the ID you want to search for
-    bool is_file_id = true;  // Set to false if searching by base ID
+    uint32_t search_id = 3568; // Change this to the ID you want to search for
 
-    uint8_t *mft_data = extract_mft_data(&dat_file, search_id, is_file_id);
+    uint8_t *mft_data = extract_mft_data(&dat_file, search_id);
     if (mft_data)
     {
         // Successfully extracted data, use it as needed

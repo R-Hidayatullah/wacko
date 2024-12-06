@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.5.0)
+cmake_minimum_required(VERSION 3.10.0)
 project(wacko VERSION 0.1.0 LANGUAGES C)
 
 set(C_STANDARD 11)
