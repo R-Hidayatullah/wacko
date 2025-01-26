@@ -202,7 +202,7 @@ void load_dat_file(const char *file_path, DatFile *dat_file)
         dat_file->mft_index_data[i].base_id = read_uint32_le(file);
     }
 
-    uint32_t mft_index_data_num = num_index_entries - 2;
+    uint32_t mft_index_data_num = num_index_entries - 1;
     debug_print_mft_index_data(&dat_file->mft_index_data[mft_index_data_num], mft_index_data_num); // Print MFTIndexData for each entry
 
     fclose(file);
@@ -256,10 +256,10 @@ uint8_t *extract_mft_data(const char *file_path, DatFile *dat_file, uint32_t num
     }
 
     // Allocate buffer for MFT data
-    uint8_t *buffer = (uint8_t *)malloc(mft_entry->size);
-    if (buffer == NULL)
+    uint8_t *compressed_data = (uint8_t *)malloc(mft_entry->size);
+    if (compressed_data == NULL)
     {
-        fprintf(stderr, "Memory allocation failed for buffer\n");
+        fprintf(stderr, "Memory allocation failed for compressed data\n");
         exit(EXIT_FAILURE);
     }
 
@@ -268,19 +268,19 @@ uint8_t *extract_mft_data(const char *file_path, DatFile *dat_file, uint32_t num
     if (!file)
     {
         perror("Error opening file");
-        free(buffer);
+        free(compressed_data);
         exit(EXIT_FAILURE);
     }
 
     fseeko(file, mft_entry->offset, SEEK_SET);
-    fread(buffer, 1, mft_entry->size, file);
+    fread(compressed_data, 1, mft_entry->size, file);
     fclose(file);
 
     // Print the first 16 bytes of the MFT data (Hex) before decompression
     printf("First 16 bytes of MFT data before decompression (Hex):\n");
     for (size_t i = 0; i < 16 && i < mft_entry->size; ++i)
     {
-        printf("%02X ", buffer[i]);
+        printf("%02X ", compressed_data[i]);
     }
     printf("\n");
 
@@ -288,9 +288,9 @@ uint8_t *extract_mft_data(const char *file_path, DatFile *dat_file, uint32_t num
     printf("First 16 bytes of MFT data before decompression (ASCII):\n");
     for (size_t i = 0; i < 16 && i < mft_entry->size; ++i)
     {
-        if (isprint(buffer[i]))
+        if (isprint(compressed_data[i]))
         {
-            printf("%c", buffer[i]);
+            printf("%c", compressed_data[i]);
         }
         else
         {
@@ -302,35 +302,34 @@ uint8_t *extract_mft_data(const char *file_path, DatFile *dat_file, uint32_t num
     // Decompress if the file is compressed
     if (mft_entry->compression_flag != 0)
     {
-        uint32_t decompressedSize = 0;
-        uint8_t *decompressedBuffer = inflateBuffer(mft_entry->size, (const uint32_t *)buffer, &decompressedSize, NULL);
-
-        if (decompressedBuffer == NULL)
+        uint32_t decompressed_size = 0;
+        uint8_t *decompressed_data = decompress_data(compressed_data, mft_entry->size, &decompressed_size);
+        if (decompressed_data == NULL)
         {
             fprintf(stderr, "Decompression failed!\n");
-            free(buffer); // Free the original buffer
+            free(compressed_data); // Free the original compressed data
             exit(EXIT_FAILURE);
         }
 
-        free(buffer);                // Free the compressed buffer
-        buffer = decompressedBuffer; // Update buffer to point to decompressed data
-        printf("Decompressed MFT data size: %u bytes\n", decompressedSize);
+        free(compressed_data);               // Free the compressed compressed data
+        compressed_data = decompressed_data; // Update compressed data to point to decompressed data
+        printf("Decompressed MFT data size: %u bytes\n", decompressed_size);
 
         // Print the first 16 bytes of the MFT data (Hex) after decompression
         printf("First 16 bytes of MFT data after decompression (Hex):\n");
-        for (size_t i = 0; i < 16 && i < decompressedSize; ++i)
+        for (size_t i = 0; i < 16 && i < decompressed_size; ++i)
         {
-            printf("%02X ", buffer[i]);
+            printf("%02X ", compressed_data[i]);
         }
         printf("\n");
 
         // Print the first 16 bytes of the MFT data (ASCII) after decompression
         printf("First 16 bytes of MFT data after decompression (ASCII):\n");
-        for (size_t i = 0; i < 16 && i < decompressedSize; ++i)
+        for (size_t i = 0; i < 16 && i < decompressed_size; ++i)
         {
-            if (isprint(buffer[i]))
+            if (isprint(compressed_data[i]))
             {
-                printf("%c", buffer[i]);
+                printf("%c", compressed_data[i]);
             }
             else
             {
@@ -340,7 +339,7 @@ uint8_t *extract_mft_data(const char *file_path, DatFile *dat_file, uint32_t num
         printf("\n");
     }
 
-    return buffer; // Return the buffer containing the MFT data
+    return compressed_data; // Return the compressed data containing the MFT data
 }
 
 #endif // DATFILE_H
