@@ -8,5 +8,7 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 
 include_directories(include)
 
+add_compile_options("-D_FILE_OFFSET_BITS=64")
+
 add_executable(wacko main.c)
 

@@ -134,7 +134,7 @@ void load_dat_file(const char *file_path, DatFile *dat_file)
     debug_print_header(&dat_file->header);
 
     // fseek(file, dat_file->header.mft_offset, SEEK_SET);
-    _fseeki64(file, dat_file->header.mft_offset, SEEK_SET);
+    fseeko(file, dat_file->header.mft_offset, SEEK_SET);
     fread(dat_file->mft_header.identifier, sizeof(uint8_t), MFT_MAGIC_NUMBER, file);
     dat_file->mft_header.unknown = read_uint64_le(file);
     dat_file->mft_header.num_entries = read_uint32_le(file);
@@ -177,7 +177,7 @@ void load_dat_file(const char *file_path, DatFile *dat_file)
     }
 
     // fseek(file, dat_file->mft_data[MFT_ENTRY_INDEX_NUM].offset, SEEK_SET);
-    _fseeki64(file, dat_file->mft_data[MFT_ENTRY_INDEX_NUM].offset, SEEK_SET);
+    fseeko(file, dat_file->mft_data[MFT_ENTRY_INDEX_NUM].offset, SEEK_SET);
     for (uint32_t i = 0; i < num_index_entries; ++i)
     {
         dat_file->mft_index_data[i].file_id = read_uint32_le(file);
@@ -241,8 +241,8 @@ uint8_t *extract_mft_data(DatFile *dat_file, uint32_t number)
     }
 
     // Open the file to read data
-    // FILE *file = fopen("Local.dat", "rb"); // Open the file again to read data
-    FILE *file = fopen("C:\\Program Files (x86)\\Steam\\steamapps\\common\\Guild Wars 2\\Gw2.dat", "rb"); // Open the file again to read data
+    FILE *file = fopen("Local.dat", "rb"); // Open the file again to read data
+    // FILE *file = fopen("C:\\Program Files (x86)\\Steam\\steamapps\\common\\Guild Wars 2\\Gw2.dat", "rb"); // Open the file again to read data
     if (!file)
     {
         perror("Error opening file");
@@ -251,7 +251,7 @@ uint8_t *extract_mft_data(DatFile *dat_file, uint32_t number)
     }
 
     // fseek(file, mft_entry->offset, SEEK_SET);
-    _fseeki64(file, mft_entry->offset, SEEK_SET);
+    fseeko(file, mft_entry->offset, SEEK_SET);
     fread(buffer, 1, mft_entry->size, file);
     fclose(file);
 
