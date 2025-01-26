@@ -12,14 +12,14 @@ int main()
     load_dat_file(file_path, &dat_file);
 
     // Print out the parsed data for debugging purposes
-    printf("DAT File Version: %d\n", dat_file.header.version);
+    printf("\nDAT File Version: %d\n", dat_file.header.version);
     printf("MFT Header Identifier: %.4s\n", dat_file.mft_header.identifier);
-    printf("Number of MFT Entries: %u\n", dat_file.mft_header.num_entries);
+    printf("Number of MFT Entries: %u\n\n", dat_file.mft_header.num_entries);
 
     // Example: Extract MFT data based on file ID or base ID
-    uint32_t search_id = 16; // Change this to the ID you want to search for
+    uint32_t search_id = 307; // Change this to the ID you want to search for
 
-    uint8_t *mft_data = extract_mft_data(&dat_file, search_id);
+    uint8_t *mft_data = extract_mft_data(file_path, &dat_file, search_id);
     if (mft_data)
     {
         // Successfully extracted data, use it as needed

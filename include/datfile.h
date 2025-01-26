@@ -5,7 +5,7 @@
 
 #define DAT_MAGIC_NUMBER 3
 #define MFT_MAGIC_NUMBER 4
-#define MFT_ENTRY_INDEX_NUM 1
+#define MFT_ENTRY_INDEX_NUM 2
 
 typedef struct
 {
@@ -105,6 +105,24 @@ void debug_print_mft_header(const MFTHeader *header)
     printf("  Unknown Field 3:   %d\n", header->unknown_field_3); // 32-bit hex
 }
 
+void debug_print_mft_data(const MFTData *data, uint32_t index)
+{
+    printf("MFTData[%d] Debug Info:\n", index);
+    printf("  Offset:            %llu\n", data->offset);         // 64-bit hex
+    printf("  Size:              %d bytes\n", data->size);       // Unsigned integer
+    printf("  Compression Flag:  %d\n", data->compression_flag); // 16-bit hex
+    printf("  Entry Flag:        %d\n", data->entry_flag);       // 16-bit hex
+    printf("  Counter:           %d\n", data->counter);          // Unsigned integer
+    printf("  CRC:               %d\n", data->crc);              // 32-bit hex
+}
+
+void debug_print_mft_index_data(const MFTIndexData *data, uint32_t index)
+{
+    printf("MFTIndexData[%d] Debug Info:\n", index);
+    printf("  File ID:           %d\n", data->file_id); // Unsigned integer
+    printf("  Base ID:           %d\n", data->base_id); // Unsigned integer
+}
+
 // Function to load .dat file and populate DatFile structure
 void load_dat_file(const char *file_path, DatFile *dat_file)
 {
@@ -133,7 +151,6 @@ void load_dat_file(const char *file_path, DatFile *dat_file)
     dat_file->header.flags = read_uint32_le(file);
     debug_print_header(&dat_file->header);
 
-    // fseek(file, dat_file->header.mft_offset, SEEK_SET);
     fseeko(file, dat_file->header.mft_offset, SEEK_SET);
     fread(dat_file->mft_header.identifier, sizeof(uint8_t), MFT_MAGIC_NUMBER, file);
     dat_file->mft_header.unknown = read_uint64_le(file);
@@ -156,7 +173,7 @@ void load_dat_file(const char *file_path, DatFile *dat_file)
         exit(EXIT_FAILURE);
     }
 
-    for (uint32_t i = 0; i < dat_file->mft_header.num_entries; ++i)
+    for (uint32_t i = 1; i < dat_file->mft_header.num_entries; ++i)
     {
         dat_file->mft_data[i].offset = read_uint64_le(file);
         dat_file->mft_data[i].size = read_uint32_le(file);
@@ -165,6 +182,8 @@ void load_dat_file(const char *file_path, DatFile *dat_file)
         dat_file->mft_data[i].counter = read_uint32_le(file);
         dat_file->mft_data[i].crc = read_uint32_le(file);
     }
+    uint32_t mft_data_index = dat_file->mft_header.num_entries - 1;
+    debug_print_mft_data(&dat_file->mft_data[mft_data_index], mft_data_index); // Print MFTData for each entry
 
     uint32_t num_index_entries = dat_file->mft_data[MFT_ENTRY_INDEX_NUM].size / sizeof(MFTIndexData);
     dat_file->mft_index_data = (MFTIndexData *)malloc(num_index_entries * sizeof(MFTIndexData));
@@ -176,7 +195,6 @@ void load_dat_file(const char *file_path, DatFile *dat_file)
         exit(EXIT_FAILURE);
     }
 
-    // fseek(file, dat_file->mft_data[MFT_ENTRY_INDEX_NUM].offset, SEEK_SET);
     fseeko(file, dat_file->mft_data[MFT_ENTRY_INDEX_NUM].offset, SEEK_SET);
     for (uint32_t i = 0; i < num_index_entries; ++i)
     {
@@ -184,15 +202,20 @@ void load_dat_file(const char *file_path, DatFile *dat_file)
         dat_file->mft_index_data[i].base_id = read_uint32_le(file);
     }
 
+    uint32_t mft_index_data_num = num_index_entries - 2;
+    debug_print_mft_index_data(&dat_file->mft_index_data[mft_index_data_num], mft_index_data_num); // Print MFTIndexData for each entry
+
     fclose(file);
 }
-uint8_t *extract_mft_data(DatFile *dat_file, uint32_t number)
+
+uint8_t *extract_mft_data(const char *file_path, DatFile *dat_file, uint32_t number)
 {
     size_t index_number = 0;
     bool found = false;
 
     // Find the corresponding MFT entry
-    for (size_t i = 0; i < dat_file->mft_header.num_entries; i++)
+    uint32_t num_index_entries = dat_file->mft_data[MFT_ENTRY_INDEX_NUM].size / sizeof(MFTIndexData);
+    for (size_t i = 0; i < num_index_entries; i++)
     {
         if (dat_file->mft_index_data[i].file_id == number)
         {
@@ -224,7 +247,7 @@ uint8_t *extract_mft_data(DatFile *dat_file, uint32_t number)
     }
 
     // Get the MFT data corresponding to the found index
-    MFTData *mft_entry = &dat_file->mft_data[index_number - 1];
+    MFTData *mft_entry = &dat_file->mft_data[index_number];
 
     // Check if the file is compressed
     if (mft_entry->compression_flag != 0)
@@ -241,8 +264,7 @@ uint8_t *extract_mft_data(DatFile *dat_file, uint32_t number)
     }
 
     // Open the file to read data
-    FILE *file = fopen("Local.dat", "rb"); // Open the file again to read data
-    // FILE *file = fopen("C:\\Program Files (x86)\\Steam\\steamapps\\common\\Guild Wars 2\\Gw2.dat", "rb"); // Open the file again to read data
+    FILE *file = fopen(file_path, "rb"); // Open the file again to read data
     if (!file)
     {
         perror("Error opening file");
@@ -250,7 +272,6 @@ uint8_t *extract_mft_data(DatFile *dat_file, uint32_t number)
         exit(EXIT_FAILURE);
     }
 
-    // fseek(file, mft_entry->offset, SEEK_SET);
     fseeko(file, mft_entry->offset, SEEK_SET);
     fread(buffer, 1, mft_entry->size, file);
     fclose(file);
