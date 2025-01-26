@@ -182,7 +182,7 @@ void load_dat_file(const char *file_path, DatFile *dat_file)
         dat_file->mft_data[i].counter = read_uint32_le(file);
         dat_file->mft_data[i].crc = read_uint32_le(file);
     }
-    uint32_t mft_data_index = dat_file->mft_header.num_entries - 1;
+    uint32_t mft_data_index = 16;
     debug_print_mft_data(&dat_file->mft_data[mft_data_index], mft_data_index); // Print MFTData for each entry
 
     uint32_t num_index_entries = dat_file->mft_data[MFT_ENTRY_INDEX_NUM].size / sizeof(MFTIndexData);
