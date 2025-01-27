@@ -15,11 +15,89 @@
 
 typedef struct
 {
-    uint8_t *data;
-    uint32_t size;
-    uint32_t byte_pos;
-    uint8_t bit_pos;
-} BitReader;
+    uint8_t *input_buffer;
+    uint64_t buffer_position_bytes;
+    uint32_t bytes_available;
+    uint32_t head_data;
+    uint32_t buffer_data;
+    uint8_t bytes_available_data;
+} StateData;
+
+void pull_byte(StateData *state_data, uint32_t *head_data, uint8_t *bytes_available_data)
+{
+    if (state_data->bytes_available >= sizeof(uint32_t))
+    {
+        // Copy 4 bytes from the input buffer into head_data
+        memcpy(head_data, state_data->input_buffer + state_data->buffer_position_bytes, sizeof(uint32_t));
+
+        // Update state_data properties
+        state_data->bytes_available -= sizeof(uint32_t);
+        state_data->buffer_position_bytes += sizeof(uint32_t);
+
+        // Set the number of bits available
+        *bytes_available_data = sizeof(uint32_t) * 8; // 32 bits
+    }
+    else
+    {
+        // Not enough bytes available, reset values
+        *head_data = 0;
+        *bytes_available_data = 0;
+    }
+}
+
+uint32_t read_bits(StateData *state_data, uint8_t bits_number)
+{
+    uint32_t value = state_data->head_data >> ((sizeof(uint32_t) * 8) - bits_number);
+
+    return value;
+}
+
+void drop_bits(StateData *state_data, uint8_t bits_number)
+{
+    if (state_data->bytes_available_data < bits_number)
+    {
+        printf("Too much bits were asked to be dropped.\n");
+    }
+    uint8_t new_bits_available = 0;
+    new_bits_available = state_data->bytes_available_data - bits_number;
+    if (new_bits_available >= (sizeof(uint32_t) * 8))
+    {
+        if (bits_number == (sizeof(uint32_t) * 8))
+        {
+            state_data->head_data = state_data->buffer_data;
+            state_data->buffer_data = 0;
+        }
+        else
+        {
+            state_data->head_data = (state_data->head_data << bits_number) | (state_data->buffer_data >> ((sizeof(uint32_t) * 8) - bits_number));
+            state_data->buffer_data = state_data->buffer_data << bits_number;
+        }
+        state_data->bytes_available_data = new_bits_available;
+    }
+    else
+    {
+        uint32_t new_value = 0;
+        uint8_t pulled_bits = 0;
+        pull_byte(state_data, &new_value, &pulled_bits);
+
+        if (bits_number == (sizeof(uint32_t) * 8))
+        {
+            state_data->head_data = 0;
+        }
+        else
+        {
+            state_data->head_data = state_data->head_data << bits_number;
+        }
+        state_data->head_data |= (state_data->buffer_data >> ((sizeof(uint32_t) * 8) - bits_number)) | (new_value >> new_bits_available);
+
+        if (new_bits_available > 0)
+        {
+            state_data->buffer_data = new_value << ((sizeof(uint32_t) * 8) - new_bits_available);
+        }
+
+        state_data->bytes_available_data = new_bits_available + pulled_bits;
+    }
+}
 
 typedef struct
 {
@@ -43,125 +121,27 @@ typedef struct
     uint16_t symbol_list_by_bits_body_array[MAX_SYMBOL_VALUE];
 } HuffmanTreeBuilder;
 
-// Initialize the BitReader with a data buffer
-void init_bit_reader(BitReader *reader, uint8_t *data, uint32_t size)
-{
-    reader->data = data;
-    reader->size = size;
-    reader->byte_pos = 0;
-    reader->bit_pos = 0;
-}
-
-// Read n bits from the current position
-uint32_t read_bits(BitReader *reader, uint32_t n)
-{
-    uint32_t result = 0;
-
-    // Ensure we read the requested number of bits
-    for (uint32_t i = 0; i < n; i++)
-    {
-        if (reader->byte_pos >= reader->size)
-        {
-            return -1; // End of data
-        }
-
-        uint8_t byte = reader->data[reader->byte_pos];
-        uint32_t bit = (byte >> (7 - reader->bit_pos)) & 1;
-
-        // Shift the result to make room for the new bit
-        result = (result << 1) | bit;
-
-        // Move to the next bit position
-        reader->bit_pos++;
-        if (reader->bit_pos == 8)
-        {
-            reader->bit_pos = 0;
-            reader->byte_pos++;
-        }
-    }
-
-    return result;
-}
-
-// Drop n bits without moving the reader
-void drop_bits(BitReader *reader, uint32_t n)
-{
-    while (n > 0)
-    {
-        if (reader->bit_pos == 8)
-        {
-            reader->bit_pos = 0;
-            reader->byte_pos++;
-        }
-
-        uint32_t bits_to_drop = 8 - reader->bit_pos;
-        if (n < bits_to_drop)
-        {
-            reader->bit_pos += n;
-            break;
-        }
-        else
-        {
-            n -= bits_to_drop;
-            reader->bit_pos = 0;
-            reader->byte_pos++;
-        }
-    }
-}
-
-void read_code(BitReader *bit_reader, HuffmanTree *huffmantree_static, uint16_t *symbol_data)
+void read_code(HuffmanTree *huffmantree_data, StateData *state_data, uint16_t *symbol_data)
 {
     uint32_t hash_value = 0;
-    hash_value = read_bits(bit_reader, MAX_BITS_HASH); // Read the hash value
-
-    // Check if the symbol is found in the hash table
-    if (huffmantree_static->symbol_value_hash_existence_array[hash_value])
+    hash_value = read_bits(state_data, 8);
+    bool exist = huffmantree_data->symbol_value_hash_existence_array[hash_value];
+    if (exist)
     {
-        *symbol_data = huffmantree_static->symbol_value_hash_array[hash_value];      // Dereference symbol_data to store the value
-        drop_bits(bit_reader, huffmantree_static->code_bits_hash_array[hash_value]); // Drop the bits from the bit_reader
+        *symbol_data = huffmantree_data->symbol_value_hash_array[hash_value];
+        uint8_t code_bits_hash = huffmantree_data->code_bits_hash_array[hash_value];
+        drop_bits(state_data, code_bits_hash);
     }
     else
     {
-        // If not found in the hash table, proceed with the code comparison
-        hash_value = read_bits(bit_reader, 32); // Read a 32-bit value
         uint16_t index_data = 0;
-
-        // Find the corresponding index in the code comparison array
-        while (hash_value < huffmantree_static->code_comparison_array[index_data])
+        while (read_bits(state_data, 32) < huffmantree_data->code_comparison_array[index_data])
         {
-            ++index_data;
+            index_data = index_data + 1;
         }
-
-        uint8_t bits_data = huffmantree_static->code_bits_array[index_data]; // Get the number of bits for the symbol
-        *symbol_data = huffmantree_static->symbol_value_array[huffmantree_static->symbol_value_array_offset_array[index_data] -
-                                                              ((hash_value - huffmantree_static->code_comparison_array[index_data]) >> (32 - bits_data))]; // Assign symbol to symbol_data
-
-        drop_bits(bit_reader, bits_data); // Drop the bits after reading the symbol
-    }
-}
-
-void swap_and_mirror(uint8_t *buffer, uint32_t length)
-{
-    // Ensure the length is a multiple of 4
-    if (length % 4 != 0)
-    {
-        printf("Buffer length must be a multiple of 4.\n");
-        return;
-    }
-
-    for (uint32_t i = 0; i < length; i += 4)
-    {
-        // Swap each 4-byte block
-        uint8_t temp;
-
-        // Mirror the 4 bytes (swap the first with the fourth, and the second with the third)
-        temp = buffer[i];
-        buffer[i] = buffer[i + 3];
-        buffer[i + 3] = temp;
-
-        temp = buffer[i + 1];
-        buffer[i + 1] = buffer[i + 2];
-        buffer[i + 2] = temp;
+        uint8_t temp_bits = huffmantree_data->code_bits_array[index_data];
+        *symbol_data = huffmantree_data->symbol_value_array[huffmantree_data->symbol_value_array_offset_array[index_data] - ((read_bits(state_data, 32) - huffmantree_data->code_comparison_array[index_data]) >> (32 - temp_bits))];
+        drop_bits(state_data, temp_bits);
     }
 }
 
@@ -219,8 +199,6 @@ void add_symbol(HuffmanTreeBuilder *huffmantree_builder, uint16_t symbol_data, u
         huffmantree_builder->symbol_list_by_bits_head_existence_array[bits_data] = true;
     }
 }
-
-#include <stdbool.h>
 
 bool check_huffmantree_builder(HuffmanTreeBuilder *huffmantree_builder)
 {
@@ -321,25 +299,27 @@ bool build_huffmantree(HuffmanTree *huffmantree_data, HuffmanTreeBuilder *huffma
     return true; // Return true if the Huffman tree was successfully built
 }
 
-bool parse_huffmantree(BitReader *bit_reader, HuffmanTree *huffmantree_data, HuffmanTreeBuilder *huffmantree_builder, HuffmanTree *huffmantree_static)
+bool parse_huffmantree(StateData *state_data, HuffmanTree *huffmantree_data, HuffmanTreeBuilder *huffmantree_builder, HuffmanTree *huffmantree_static)
 {
     uint16_t number_of_symbols = 0;
-    number_of_symbols = read_bits(bit_reader, 16); // Read number of symbols
-    drop_bits(bit_reader, 16);                     // Drop the 16 bits read for the number of symbols
+    number_of_symbols = read_bits(state_data, 16); // Read number of symbols
+    drop_bits(state_data, 16);                     // Drop the 16 bits read for the number of symbols
 
     if (number_of_symbols > MAX_SYMBOL_VALUE)
     {
-        printf("Too many symbols to decode.");
+
+        printf("Too many symbols to decode.\n");
         return false; // Return false if there are too many symbols
     }
 
-    clear_huffmantree_builder(huffmantree_builder);    // Clear the builder
+    clear_huffmantree_builder(huffmantree_builder); // Clear the builder
+
     int16_t remaining_symbols = number_of_symbols - 1; // Initialize remaining symbols to number_of_symbols - 1
 
     while (remaining_symbols >= 0)
     {
         uint16_t code_data = 0;
-        read_code(bit_reader, huffmantree_static, &code_data); // Read the Huffman code
+        read_code(huffmantree_static, state_data, &code_data); // Read the Huffman code
 
         uint8_t code_number_of_bits = code_data & 0x1F;         // Extract number of bits
         uint16_t code_number_of_symbols = (code_data >> 5) + 1; // Extract number of symbols
@@ -642,17 +622,17 @@ void initialize_static_huffmantree(HuffmanTree *huffmantree_static)
     build_huffmantree(huffmantree_static, &huffmantree_builder);
 }
 
-void decompress(BitReader *bit_reader, uint32_t decompressed_size, uint8_t *decompressed_data)
+void decompress(StateData *state_data, uint32_t decompressed_size, uint8_t *decompressed_data)
 {
     uint32_t output_position = 0;
 
-    // Drop the first 8 bits (likely a header or reserved bits)
-    drop_bits(bit_reader, 8);
+    drop_bits(state_data, 4);
 
     // Read the constant add size
-    uint16_t write_size_const_add = read_bits(bit_reader, 4);
+    uint16_t write_size_const_add = 0;
+    write_size_const_add = read_bits(state_data, 4);
     write_size_const_add += 1;
-    drop_bits(bit_reader, 4);
+    drop_bits(state_data, 4);
 
     printf("Write size const add: %d\n", write_size_const_add);
 
@@ -667,18 +647,23 @@ void decompress(BitReader *bit_reader, uint32_t decompressed_size, uint8_t *deco
     // Start decompressing while we have data to process
     while (output_position < decompressed_size)
     {
+        clear_huffmantree(&huffmantree_symbol);
+        clear_huffmantree(&huffmantree_copy);
+
         // Parse the Huffman trees for symbol and copy
-        if (!parse_huffmantree(bit_reader, &huffmantree_symbol, &huffmantree_builder, &huffmantree_static) ||
-            !parse_huffmantree(bit_reader, &huffmantree_copy, &huffmantree_builder, &huffmantree_static))
+        if (!parse_huffmantree(state_data, &huffmantree_symbol, &huffmantree_builder, &huffmantree_static) ||
+            !parse_huffmantree(state_data, &huffmantree_copy, &huffmantree_builder, &huffmantree_static))
         {
             printf("Error: Failed to parse Huffman tree.\n");
             break; // Exit if parsing fails
         }
 
         // Read the max count value
-        uint32_t max_count = read_bits(bit_reader, 4);
+
+        uint32_t max_count = 0;
+        max_count = read_bits(state_data, 4);
         max_count = (max_count + 1) << 12;
-        drop_bits(bit_reader, 4); // Drop the remaining 4 bits
+        drop_bits(state_data, 4); // Drop the remaining 4 bits
 
         // Process each symbol until we reach max_count or decompressed_size
         uint32_t current_code_read_count = 0;
@@ -692,6 +677,15 @@ void decompress(BitReader *bit_reader, uint32_t decompressed_size, uint8_t *deco
     }
 }
 
+uint32_t convert_bytes_to_uint32(uint8_t *bytes)
+{
+    // Assuming the byte array has at least 4 bytes
+    return (uint32_t)(bytes[0]) << 24 |
+           (uint32_t)(bytes[1]) << 16 |
+           (uint32_t)(bytes[2]) << 8 |
+           (uint32_t)(bytes[3]);
+}
+
 uint8_t *decompress_data(uint8_t *compressed_data, uint32_t compressed_size, uint32_t *decompressed_size)
 {
     if (compressed_data == NULL)
@@ -700,39 +694,44 @@ uint8_t *decompress_data(uint8_t *compressed_data, uint32_t compressed_size, uin
         return NULL; // Return NULL to indicate an error
     }
 
-    swap_and_mirror(compressed_data, compressed_size);
-    BitReader bit_reader;
+    StateData state_data;
+    state_data.bytes_available = compressed_size;
+    state_data.input_buffer = compressed_data;
+    state_data.buffer_position_bytes = 0;
+    state_data.buffer_data = 0;
+    uint32_t temp_head_data = 0;
+    uint8_t temp_bytes_available_data = 0;
 
-    init_bit_reader(&bit_reader, compressed_data, compressed_size);
+    pull_byte(&state_data, &temp_head_data, &temp_bytes_available_data);
+
+    state_data.head_data = temp_head_data;
+    state_data.bytes_available_data = temp_bytes_available_data;
 
     uint32_t uncompressed_size = 0;
 
-    // Drop the first 32 bits (already consumed)
-    drop_bits(&bit_reader, 32);
+    drop_bits(&state_data, 32);
 
-    // Read the next 32 bits to determine uncompressed size
-    uncompressed_size = read_bits(&bit_reader, 32);
-
-    // Drop the 32 bits we just read
-    drop_bits(&bit_reader, 32);
+    uncompressed_size = read_bits(&state_data, 32);
+    drop_bits(&state_data, 32);
 
     printf("Compressed size : %d \n", compressed_size);
     printf("Decompressed size : %d \n", uncompressed_size);
+
     // If the caller provided a pointer for decompressed size, store the size there
-    if (decompressed_size != NULL)
+    if (decompressed_size != 0)
     {
         *decompressed_size = uncompressed_size;
     }
 
     // Allocate memory for decompressed data
-    uint8_t *decompressed_data = (uint8_t *)malloc(uncompressed_size);
+    uint8_t *decompressed_data = (uint8_t *)malloc(sizeof(uint8_t) * uncompressed_size);
     if (decompressed_data == NULL)
     {
         printf("Memory allocation failed!\n");
         return NULL; // Return NULL if allocation fails
     }
 
-    decompress(&bit_reader, uncompressed_size, decompressed_data);
+    decompress(&state_data, uncompressed_size, decompressed_data);
 
     return decompressed_data; // Return the allocated buffer (currently empty)
 }
