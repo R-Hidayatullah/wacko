@@ -17,7 +17,7 @@ int main()
     printf("Number of MFT Entries: %u\n\n", dat_file.mft_header.num_entries);
 
     // Example: Extract MFT data based on file ID or base ID
-    uint32_t search_id = 17; // Change this to the ID you want to search for
+    uint32_t search_id = 308; // Change this to the ID you want to search for
 
     uint8_t *mft_data = extract_mft_data(file_path, &dat_file, search_id);
     if (mft_data)
