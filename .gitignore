@@ -13,3 +13,4 @@ CMakeUserPresets.json
 *.dat
 /build/
 /out/
+/.vs/
